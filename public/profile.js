@@ -7,6 +7,7 @@ const Profile = (() => {
     bestDaysSinceRebirth: 0, upgrades: {}, achievements: {},
     life: { runs: 0, wins: 0, trades: 0, certificatesEarned: 0, bestNetWorth: 0, maxLoanDays: 0, bankruptcies: 0, loanDefaults: 0 },
     history: [],
+    friendCode: '', friends: [],   // friends: [{ code, name, added }]
     settings: { crt: true, sound: true },
   });
   let data = fresh();
@@ -14,6 +15,8 @@ const Profile = (() => {
     const raw = JSON.parse(localStorage.getItem(KEY));
     if (raw) data = { ...fresh(), ...raw, life: { ...fresh().life, ...raw.life }, settings: { ...fresh().settings, ...raw.settings } };
   } catch {}
+  if (!META.cleanFriendCode(data.friendCode)) data.friendCode = META.newFriendCode();
+  if (!Array.isArray(data.friends)) data.friends = [];
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch {} };
 
   const listeners = [];
@@ -125,13 +128,38 @@ const Profile = (() => {
     if (!raw || typeof raw !== 'object') throw new Error('The save code is empty.');
     return { ...fresh(), ...raw, life: { ...fresh().life, ...raw.life }, settings: { ...fresh().settings, ...raw.settings } };
   }
-  function load(save) { data = save; changed(); }
+  function load(save) {
+    data = save;
+    if (!META.cleanFriendCode(data.friendCode)) data.friendCode = META.newFriendCode();
+    if (!Array.isArray(data.friends)) data.friends = [];
+    changed();
+  }
+
+  // ---------- friends ----------
+  function isFriend(code) { return data.friends.some((f) => f.code === code); }
+  // Returns an error message, or '' when added.
+  function addFriend(code, name) {
+    code = META.cleanFriendCode(code);
+    if (!code) return 'Friend codes are 8 letters and numbers, like ABCD-1234.';
+    if (code === data.friendCode) return 'That is your own friend code.';
+    if (isFriend(code)) return 'Already on your friends list.';
+    if (data.friends.length >= 100) return 'Your friends list is full (100).';
+    data.friends.push({ code, name: String(name || 'Trader').trim().slice(0, 16) || 'Trader', added: new Date().toISOString() });
+    changed();
+    return '';
+  }
+  function removeFriend(code) { data.friends = data.friends.filter((f) => f.code !== code); changed(); }
+  // Keep saved names current when a friend shows up under a new name.
+  function seeFriend(code, name) {
+    const f = data.friends.find((x) => x.code === code);
+    if (f && name && f.name !== name) { f.name = String(name).slice(0, 16); changed(); }
+  }
 
   return {
     get data() { return data; }, save, changed, onChange: (f) => listeners.push(f),
-    exportHex, readHex, load,
+    exportHex, readHex, load, isFriend, addFriend, removeFriend, seeFriend,
     meta, upgradeLevel, upgradeCost, upgradeMax, buyUpgrade,
     canRebirth, rebirth, recordRun, checkAchievements,
-    reset() { data = fresh(); changed(); },
+    reset() { const fc = data.friendCode; data = fresh(); data.friendCode = fc; changed(); },   // erasing progress keeps your friend code
   };
 })();

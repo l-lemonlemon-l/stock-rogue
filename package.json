@@ -7,7 +7,7 @@
     "start": "node server/index.js",
     "desktop": "electron .",
     "dist:win": "electron-builder --win --x64",
-    "dist:mac": "electron-builder --mac --universal",
+    "dist:mac": "electron-builder --mac --arm64 --x64",
     "build:web": "node tools/build-web.js web",
     "build:android": "node tools/build-web.js android && npx cap sync android"
   },

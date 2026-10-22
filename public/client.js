@@ -18,7 +18,7 @@ const S = {
   day: 0, ticksPerDay: 90, tick: 0, board: [], shopTab: 'perks', news: [], newsDirty: true,
   inRun: false, results: null, server: localStorage.getItem('sr_server') || (CFG ? 'local' : 'online'), mode: 'versus', fair: false,
   lastStats: null, bankruptShown: false, tickMs: 500, lastTickAt: 0, marks: {},
-  myId: null, chat: [], unread: 0, panel: 'market',
+  myId: null, chat: [], unread: 0, panel: 'market', friendStatus: {}, friendCheck: 0, friendsSeen: new Set(),
 };
 const GAME_WINDOWS = ['market', 'chart', 'order', 'account', 'perks', 'leaders', 'news', 'shop', 'bank', 'lobby', 'chat'];
 
@@ -76,7 +76,7 @@ function connect(first) {
   if (S.ws) { S.ws.onclose = null; S.ws.close(); }
   S.ws = CFG && (S.server === 'local' || !CFG.onlineServer) ? LocalServer.connect() : new WebSocket(serverUrl());
   S.ws.onerror = () => { SFX.error(); WM.dialog({ title: 'Network', icon: 'error', html: `Could not reach the trading server. Pick <b>${desk ? 'This computer' : DEVICE}</b> to play solo.` }); };
-  S.ws.onopen = () => { S.connected = true; S.ws.send(JSON.stringify({ ...first, meta: Profile.meta() })); renderTray(); };
+  S.ws.onopen = () => { S.connected = true; S.ws.send(JSON.stringify({ ...first, meta: Profile.meta(), fc: Profile.data.friendCode })); renderTray(); };
   S.ws.onmessage = (e) => onMsg(JSON.parse(e.data));
   S.ws.onclose = () => { S.connected = false; renderTray(); if (S.inRun && !S.results) addNews('Connection lost. Use Start a Run > Join with the same room code to reconnect.'); };
 }
@@ -90,6 +90,7 @@ function onMsg(m) {
     case 'lobby':
       S.lobby = m; S.board = m.players;
       P2P.sync(S.myId, m.players);
+      noticeFriends(m.players);
       if (m.phase === 'lobby') openLobby();
       dirty();
       break;
@@ -120,6 +121,7 @@ function onMsg(m) {
       }
       S.board = m.board;
       P2P.sync(S.myId, m.board);
+      noticeFriends(m.board);
       dirty();
       break;
     }
@@ -198,6 +200,20 @@ const A = {
   mic: () => toggleMic(),
   peermute: (id) => { const p = P2P.peers().find((x) => x.id === id); if (p) P2P.mute(id, !p.muted); },
   savecode: () => openApp('savecode'),
+  addfriend: (fc) => {
+    const p = S.board.find((x) => x.fc === fc) || S.lobby?.players.find((x) => x.fc === fc);
+    const err = Profile.addFriend(fc, p?.name);
+    if (err) { SFX.error(); return WM.dialog({ title: 'Friends', icon: 'info', html: esc(err) }); }
+    S.friendsSeen.add(fc);
+    balloon('Friends', `${p?.name || 'Trader'} added to your friends.`, 'users');
+    dirty();
+  },
+  unfriend: (fc) => {
+    const f = Profile.data.friends.find((x) => x.code === fc);
+    WM.dialog({ title: 'Remove friend', icon: 'warning', html: `Remove <b>${esc(f?.name || 'this friend')}</b> from your friends?`,
+      buttons: [{ label: 'Remove', action: () => { Profile.removeFriend(fc); dirty(); } }, { label: 'Cancel', primary: true }] });
+  },
+  joinfriend: (room) => joinFriendRoom(room),
   newrun: () => { leaveRun(); WM.close('results'); openApp('newgame'); },
 };
 document.addEventListener('click', (e) => {
@@ -268,6 +284,7 @@ const APPS = {
   rebirth: { title: 'Rebirth', icon: 'rebirth', render: renderRebirth, w: 460, h: 420, center: true },
   history: { title: 'Run History', icon: 'news', render: renderHistory, w: 640, h: 380, center: true },
   help: { title: 'Help and Support', icon: 'help', render: renderHelp, w: 560, h: 520, center: true },
+  friends: { title: 'Friends', icon: 'users', render: renderFriends, w: 470, h: 440, center: true },
   savecode: { title: 'Save Code', icon: 'disk', render: renderSaveCode, w: 470, h: 420, center: true },
   chat: { title: 'Room Chat', icon: 'chat', render: renderChat, w: 300, h: 330 },
   cmd: { title: 'Command Prompt', icon: 'cmd', render: renderCmd, w: 600, h: 340, bodyClass: 'flush', center: true },
@@ -422,8 +439,8 @@ function renderLobby() {
     <div class="row"><div class="grow"><div class="muted">Room code</div><div class="big">${esc(l.code)}</div></div>
       <div class="right"><div>${l.mode === 'coop' ? 'Co-op' : 'Versus'}${l.fair ? ', fair play' : ''}</div><div class="muted">Seed ${esc(l.seed)}</div></div></div>
     <p class="note">Give friends the room code. They pick <b>Start a Run</b> and type it under <b>Join a friend</b>.</p>
-    <div class="list" style="height:160px"><table><tr><th>Trader</th><th>Title</th><th></th></tr>
-      ${l.players.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(META.title(p.rebirths || 0))}</td><td class="muted">${p.id === l.hostId ? 'Host' : ''}</td></tr>`).join('')}
+    <div class="list" style="height:160px"><table><tr><th>Trader</th><th>Title</th><th></th><th></th></tr>
+      ${l.players.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(META.title(p.rebirths || 0))}</td><td class="muted">${p.id === l.hostId ? 'Host' : ''}</td><td>${friendButton(p)}</td></tr>`).join('')}
     </table></div>
     <div class="row" style="margin-top:10px"><span class="muted">${host ? 'Start when everyone is in.' : 'Waiting for the host to start.'}</span><span class="grow"></span>
       <button class="go primary" data-act="start" ${host ? '' : 'disabled'}>Start Run</button></div>`);
@@ -645,7 +662,7 @@ function renderLeaders() {
   if (!b) return;
   setHTML(b, `<div class="list" style="height:100%"><table><tr><th>#</th><th>Trader</th><th class="num">Net worth</th><th></th></tr>
     ${S.board.map((p, i) => `<tr class="${p.id === S.me?.id ? 'sel' : ''}"><td>${i + 1}</td><td>${esc(p.name)}</td>
-      <td class="num">${num(p.netWorth)}</td><td>${!p.alive ? 'Out' : p.inDebt ? 'In debt' : p.connected ? '' : 'Offline'}</td></tr>`).join('')}
+      <td class="num">${num(p.netWorth)}</td><td>${!p.alive ? 'Out' : p.inDebt ? 'In debt' : p.connected ? '' : 'Offline'} ${friendButton(p)}</td></tr>`).join('')}
   </table></div>`);
 }
 
@@ -845,6 +862,97 @@ function renderChat() {
   setHTML($('chatNote'), peers.length ? `${direct}/${peers.length} direct` : '');
 }
 
+// ---------- friends ----------
+// Your friend code is permanent; friends are saved in your profile (and your save code).
+// The online server answers which saved friends are in a room right now, so you can join them.
+function friendButton(p) {
+  if (!p.fc || p.id === S.myId || p.fc === Profile.data.friendCode) return '';
+  return Profile.isFriend(p.fc) ? '<span class="muted">Friend</span>' : `<button class="small" data-act="addfriend" data-arg="${esc(p.fc)}">Add friend</button>`;
+}
+// Balloon once when a saved friend is in the same room.
+function noticeFriends(players) {
+  for (const p of players || []) {
+    if (!p.fc || !Profile.isFriend(p.fc)) continue;
+    Profile.seeFriend(p.fc, p.name);
+    if (p.id !== S.myId && !S.friendsSeen.has(p.fc)) { S.friendsSeen.add(p.fc); balloon('Friends', `${p.name} is in this room.`, 'users'); }
+  }
+}
+function friendServerUrl() {
+  if (desk) return desk.onlineServer;
+  if (CFG) return CFG.onlineServer || '';
+  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+}
+function checkFriends() {
+  const codes = Profile.data.friends.map((f) => f.code);
+  const url = friendServerUrl();
+  S.friendCheck = Date.now();
+  if (!codes.length) return;
+  if (!url) { S.friendNet = 'none'; return dirty(); }
+  let done = false;
+  let ws;
+  try { ws = new WebSocket(url); } catch { S.friendNet = 'down'; return dirty(); }
+  const finish = (ok) => { if (done) return; done = true; S.friendNet = ok ? 'ok' : 'down'; try { ws.close(); } catch {} dirty(); };
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'friends', codes }));
+  ws.onmessage = (e) => { try { const m = JSON.parse(e.data); if (m.t === 'friends') { S.friendStatus = m.status || {}; finish(true); } } catch {} };
+  ws.onerror = () => finish(false);
+  setTimeout(() => finish(false), 6000);
+}
+function friendStatusText(code) {
+  if (S.friendNet === 'none') return 'Status needs the online game';
+  if (S.friendNet === 'down') return 'Server unreachable';
+  if (!(code in S.friendStatus)) return 'Checking...';
+  const st = S.friendStatus[code];
+  if (!st) return 'Not in a room';
+  const where = st.phase === 'lobby' ? 'lobby' : st.phase === 'trading' ? `trading, day ${st.day}` : 'finishing';
+  return `Room ${st.room} (${where}, ${st.players} ${st.players === 1 ? 'player' : 'players'})`;
+}
+function joinFriendRoom(room) {
+  const go = () => {
+    if (desk || CFG) { S.server = 'online'; localStorage.setItem('sr_server', 'online'); }
+    connect({ t: 'join', code: room, name: Profile.data.name, token: localStorage.getItem('sr_token_' + room) });
+    WM.close('friends');
+  };
+  if (S.inRun || S.lobby) {
+    WM.dialog({ title: 'Join friend', icon: 'warning', html: `Leave this room and join room <b>${esc(room)}</b>?`,
+      buttons: [{ label: 'Join', primary: true, action: () => { leaveRun(); go(); } }, { label: 'Cancel' }] });
+  } else go();
+}
+setInterval(() => { if (WM.isOpen('friends')) checkFriends(); }, 10000);   // refresh while the window is open
+function renderFriends() {
+  const b = body('friends');
+  if (!b) return;
+  if (!b.dataset.built) {
+    b.dataset.built = 1;
+    b.innerHTML = `
+      <div class="row"><div class="grow"><div class="muted">Your friend code</div><div class="big" id="frMine"></div></div><button class="small" id="frCopy">Copy</button></div>
+      <p class="muted" style="margin:4px 0 8px">Give this code to friends so they can add you. You can also add people you play with from the lobby or leaderboard.</p>
+      <fieldset><legend>Add a friend</legend><div class="row">
+        <input id="frCode" maxlength="9" placeholder="ABCD-1234" style="width:90px;text-transform:uppercase">
+        <input id="frName" maxlength="16" placeholder="Name" class="grow" style="min-width:0">
+        <button class="small" id="frAdd">Add</button></div></fieldset>
+      <div class="list" id="frList" style="height:190px;margin-top:8px"></div>
+      <div class="row" style="margin-top:6px"><span class="grow muted" id="frNote"></span><button class="small" id="frRefresh">Refresh</button></div>`;
+    $('frMine').textContent = META.showFriendCode(Profile.data.friendCode);
+    $('frCopy').onclick = async () => { try { await navigator.clipboard.writeText(META.showFriendCode(Profile.data.friendCode)); $('frNote').textContent = 'Copied your friend code.'; } catch { $('frNote').textContent = 'Select the code to copy it.'; } };
+    const add = () => {
+      const err = Profile.addFriend($('frCode').value, $('frName').value);
+      if (err) { SFX.error(); $('frNote').textContent = err; return; }
+      $('frCode').value = ''; $('frName').value = ''; $('frNote').textContent = 'Friend added.';
+      checkFriends(); dirty();
+    };
+    $('frAdd').onclick = add;
+    $('frName').onkeydown = $('frCode').onkeydown = (e) => { if (e.key === 'Enter') add(); };
+    $('frRefresh').onclick = () => { checkFriends(); $('frNote').textContent = ''; };
+    checkFriends();
+  }
+  const fr = Profile.data.friends;
+  setHTML($('frList'), fr.length ? `<table><tr><th>Friend</th><th>Status</th><th></th></tr>${fr.map((f) => {
+    const st = S.friendStatus[f.code];
+    return `<tr><td><b>${esc(f.name)}</b><div class="muted">${META.showFriendCode(f.code)}</div></td><td>${esc(friendStatusText(f.code))}</td>
+      <td class="right" style="white-space:nowrap">${st ? `<button class="small go" data-act="joinfriend" data-arg="${esc(st.room)}">Join</button> ` : ''}<button class="small" data-act="unfriend" data-arg="${f.code}">Remove</button></td></tr>`;
+  }).join('')}</table>` : '<div class="muted" style="padding:8px">No friends saved yet. Add one with their code, or from the lobby or leaderboard.</div>');
+}
+
 // ---------- save code ----------
 function renderSaveCode() {
   const b = body('savecode');
@@ -898,6 +1006,7 @@ function renderHelp() {
     <div class="panel-title">Keys</div>
     <p>Left/Right or the arrow buttons on the chart switch stocks. F5 buys and F6 sells, using the percents in the Order Ticket. Stocks pay dividends (a % of their value per day) while you own them. The Command Prompt accepts typed orders such as <code>buy nova 25</code>.</p>
     <p><b>Chat:</b> press Enter or click the chat icon by the clock to talk to the room. Click the microphone icon to turn voice on or off. Text and voice go directly between players (peer to peer).</p>
+    <p><b>Friends</b> (Start menu): share your friend code, save friends, see which room they are in and join it. Add people you played with from the lobby or leaderboard.</p>
     <p><b>Save Code</b> (Start menu) turns your progress into a hex code you can back up or paste on another computer.</p>`;
 }
 
@@ -976,7 +1085,7 @@ function showResults(m) {
 // ---------- shell: icons, start menu, tray ----------
 const DESKTOP_ICONS = [
   ['newgame', 'Start a Run', 'start-green'], ['itemshop', 'Item Shop', 'bag'], ['achievements', 'Achievements', 'trophy'],
-  ['rebirth', 'Rebirth', 'rebirth'], ['history', 'Run History', 'news'], ['cmd', 'Command Prompt', 'cmd'], ['help', 'Help', 'help'],
+  ['rebirth', 'Rebirth', 'rebirth'], ['history', 'Run History', 'news'], ['friends', 'Friends', 'users'], ['cmd', 'Command Prompt', 'cmd'], ['help', 'Help', 'help'],
 ];
 function renderIcons() {
   $('icons').innerHTML = DESKTOP_ICONS.map(([id, label, icon]) => `<div class="icon" data-app="${id}">${ICONS[icon]}<span>${label}</span></div>`).join('');
@@ -1004,6 +1113,7 @@ function renderStartMenu() {
       ${S.inRun ? item('bank', 'Bank', 'bank') : ''}
       ${S.inRun && S.me?.alive ? '<div class="sm-item" data-act="cashout">' + ICONS.flag + '<div><b>Cash Out</b><small>End the run, keep your score</small></div></div>' : ''}
       ${item('history', 'Run History', 'news')}
+      ${item('friends', 'Friends', 'users', `${Profile.data.friends.length} saved`)}
       ${item('savecode', 'Save Code', 'disk', 'Back up or move your progress')}
       <div class="sm-item" id="smSettings">${ICONS.settings}<div><b>Settings</b></div></div>
       ${item('help', 'Help and Support', 'help')}

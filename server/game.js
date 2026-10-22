@@ -50,12 +50,12 @@ class Game {
   }
 
   // ---------- lobby ----------
-  addPlayer(id, name, meta) {
-    if (this.players.has(id)) { this.players.get(id).connected = true; return this.players.get(id); }
+  addPlayer(id, name, meta, friendCode = '') {
+    if (this.players.has(id)) { const p = this.players.get(id); p.connected = true; if (friendCode) p.fc = friendCode; return p; }
     const m = this.cfg.fair ? META.sanitizeMeta({}) : META.sanitizeMeta(meta);
     const startCash = (this.cfg.startCash + 100 * (m.upgrades.seed_money || 0)) * META.startCashBonusMult(m);
     const p = {
-      id, name: String(name || 'Trader').slice(0, 16), meta: m,
+      id, name: String(name || 'Trader').slice(0, 16), meta: m, fc: friendCode,
       cash: startCash, holdings: {}, perks: [], items: {}, buffs: {},
       loan: null, bankrupt: false, outReason: null,
       alive: this.phase === 'lobby', ready: false, connected: true,
@@ -529,7 +529,7 @@ class Game {
   board() {
     return [...this.players.values()]
       .map((p) => ({ id: p.id, name: p.name, netWorth: round(this.netWorth(p)), alive: p.alive, connected: p.connected,
-        perks: p.perks.length, inDebt: !!p.loan, rebirths: p.meta.rebirths }))
+        perks: p.perks.length, inDebt: !!p.loan, rebirths: p.meta.rebirths, fc: p.fc || '' }))
       .sort((a, b) => b.netWorth - a.netWorth);
   }
 

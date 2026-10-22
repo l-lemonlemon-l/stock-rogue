@@ -46,6 +46,14 @@
     }
     return { rebirths, goldenShares, upgrades };
   }
+  // Friend codes: 8 characters without look-alikes (no 0/O, 1/I/L), shown as XXXX-XXXX.
+  const FRIEND_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  function cleanFriendCode(c) {
+    const s = String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return s.length === 8 && [...s].every((ch) => FRIEND_ALPHABET.includes(ch)) ? s : '';
+  }
+  function newFriendCode(rand = Math.random) { let s = ''; for (let i = 0; i < 8; i++) s += FRIEND_ALPHABET[Math.floor(rand() * FRIEND_ALPHABET.length)]; return s; }
+  const showFriendCode = (c) => c ? c.slice(0, 4) + '-' + c.slice(4) : '';
   function clampInt(v, lo, hi) { v = Math.floor(Number(v) || 0); return Math.max(lo, Math.min(hi, v)); }
 
   // ---------- loans ----------
@@ -125,7 +133,7 @@
   ];
 
   return {
-    UPGRADES, UPGRADE_BY_ID, maxLevel, sanitizeMeta,
+    UPGRADES, UPGRADE_BY_ID, maxLevel, sanitizeMeta, cleanFriendCode, newFriendCode, showFriendCode,
     LOAN_TIERS, loanOffers,
     TITLES, title, REBIRTH_DAYS_NEEDED, REBIRTH_LOAN_PENALTY, rebirthReward,
     certificatesFor, startCashBonusMult,
