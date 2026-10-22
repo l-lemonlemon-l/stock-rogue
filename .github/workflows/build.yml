@@ -27,7 +27,7 @@ jobs:
       - name: Build Windows
         if: matrix.name == 'windows'
         run: |
-          npx electron-builder --win --x64
+          npx electron-builder --win --x64 --publish never
           Compress-Archive -Path "dist/win-unpacked/*" -DestinationPath "Stock-Rogue-Windows.zip"
           Move-Item "dist/*Setup*.exe" "Stock-Rogue-Windows-Setup.exe"
 
@@ -42,7 +42,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
         run: |
-          npx electron-builder --mac --universal
+          npx electron-builder --mac --universal --publish never
           # zip with ditto so the app's internal links and permissions survive
           ditto -c -k --keepParent "dist/mac-universal/Stock Rogue.app" Stock-Rogue-Mac.zip
 
