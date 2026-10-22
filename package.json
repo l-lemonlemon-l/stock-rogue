@@ -47,7 +47,8 @@
     ],
     "win": {
       "target": [
-        "dir"
+        "dir",
+        "nsis"
       ],
       "icon": "build/icon.png"
     },
@@ -64,6 +65,11 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Stock Rogue uses the microphone for voice chat with other players in your room."
       }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Stock Rogue Setup ${version}.${ext}"
     }
   }
 }

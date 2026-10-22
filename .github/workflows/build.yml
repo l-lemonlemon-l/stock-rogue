@@ -1,5 +1,5 @@
 # Builds Windows and Mac versions on GitHub's machines (Mac builds must run on a Mac).
-# Push a tag like v1.0.0, or run it manually from the Actions tab.
+# Run it from the Actions tab (build > Run workflow), or push a tag like v1.0.0.
 name: build
 on:
   workflow_dispatch:
@@ -9,33 +9,48 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            script: dist:win
-            out: dist/win-unpacked
             name: windows
           - os: macos-latest
-            script: dist:mac
-            out: dist/mac-universal
             name: mac
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm ci
-      - run: npm run ${{ matrix.script }}
+
+      - name: Build Windows
+        if: matrix.name == 'windows'
+        run: |
+          npx electron-builder --win --x64
+          Compress-Archive -Path "dist/win-unpacked/*" -DestinationPath "Stock-Rogue-Windows.zip"
+          Move-Item "dist/*Setup*.exe" "Stock-Rogue-Windows-Setup.exe"
+
+      - name: Build Mac
+        if: matrix.name == 'mac'
         env:
-          # Mac signing + notarization (add these as repo secrets). Without them the Mac build is unsigned.
+          # Mac signing + notarization (add these as repo secrets). Without them the app is ad-hoc signed.
           CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
+        run: |
+          npx electron-builder --mac --universal
+          # zip with ditto so the app's internal links and permissions survive
+          ditto -c -k --keepParent "dist/mac-universal/Stock Rogue.app" Stock-Rogue-Mac.zip
+
       - uses: actions/upload-artifact@v4
         with:
-          name: stock-rogue-${{ matrix.name }}
-          path: ${{ matrix.out }}
+          name: Stock-Rogue-${{ matrix.name }}
+          path: |
+            Stock-Rogue-Windows.zip
+            Stock-Rogue-Windows-Setup.exe
+            Stock-Rogue-Mac.zip
+          if-no-files-found: error
