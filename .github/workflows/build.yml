@@ -44,7 +44,7 @@ jobs:
         run: |
           set -o pipefail
           # on failure, post the last lines of the build log as error notes (visible in the run summary)
-          npx electron-builder --mac --arm64 --x64 --publish never 2>&1 | tee build.log || { tail -40 build.log | while IFS= read -r line; do echo "::error::$line"; done; exit 1; }
+          npx electron-builder --mac --arm64 --x64 --publish never 2>&1 | tee build.log || { echo "::error::$(tail -30 build.log | cut -c1-300 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')"; exit 1; }
           # zip with ditto so the app's internal links and permissions survive
           ditto -c -k --keepParent "dist/mac-arm64/Stock Rogue.app" Stock-Rogue-Mac-AppleSilicon.zip
           ditto -c -k --keepParent "dist/mac/Stock Rogue.app" Stock-Rogue-Mac-Intel.zip
