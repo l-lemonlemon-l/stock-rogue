@@ -1,9 +1,15 @@
 # Builds Windows and Mac versions on GitHub's machines (Mac builds must run on a Mac).
-# Run it from the Actions tab (build > Run workflow) to get the files as artifacts.
-# Push a tag like v1.0.0 to also build Android and Web and publish everything as a GitHub Release.
+# Run it from the Actions tab (build > Run workflow). Leave the version empty to just get the files as artifacts,
+# or type a version like v1.0.0 to also build Android and Web and publish everything as a GitHub Release.
+# Pushing a tag like v1.0.0 does the same.
 name: build
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish as a GitHub Release (like v1.0.0). Leave empty to only build.'
+        required: false
+        default: ''
   push:
     tags: ['v*']
 
@@ -69,7 +75,7 @@ jobs:
           if-no-files-found: warn
 
   android:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     runs-on: ubuntu-24.04
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
@@ -102,7 +108,7 @@ jobs:
             Stock-Rogue-Web.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     needs: [build, android]
     runs-on: ubuntu-24.04
     steps:
@@ -115,7 +121,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la files
-          gh release create "${{ github.ref_name }}" files/* --repo "${{ github.repository }}" --title "Stock Rogue ${{ github.ref_name }}" --notes "Downloads:
+          VERSION="${{ inputs.version || github.ref_name }}"
+          gh release create "$VERSION" files/* --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Stock Rogue $VERSION" --notes "Downloads:
           - Windows: Stock-Rogue-Windows-Setup.exe (installer) or Stock-Rogue-Windows.zip (no install)
           - Mac: Stock-Rogue-Mac-AppleSilicon.zip (M1 and newer) or Stock-Rogue-Mac-Intel.zip. First launch: right-click the app > Open.
           - Android: Stock-Rogue-Android.apk (allow installs from unknown sources)
