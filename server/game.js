@@ -99,7 +99,8 @@ class Game {
   beginRun() {
     this.phase = 'trading';
     this.newDay();
-    this.timer = setInterval(() => this.onTick(), this.cfg.tickMs);
+    // one bad tick must never stop the market: log it and keep ticking
+    this.timer = setInterval(() => { try { this.onTick(); } catch (e) { console.error('tick failed', e); } }, this.cfg.tickMs);
   }
 
   newDay() {
@@ -333,6 +334,7 @@ class Game {
     try {
       switch (msg.t) {
         case 'start': return this.start(id);
+        case 'resync': return this.resync(id);   // client's market looked frozen: resend everything
         case 'buy': return this.tradeGuard(p, msg) && this.execBuy(p, msg.ticker, msg.qty);
         case 'sell': return this.tradeGuard(p, msg) && this.execSell(p, msg.ticker, msg.qty);
         case 'active': return this.useActive(p, msg.perk, msg.ticker);

@@ -195,6 +195,7 @@ const A = {
   open: (id) => openApp(id),
   start: () => send({ t: 'start' }),
   rebirth: () => confirmRebirth(),
+  refresh: () => refreshStocks(),
   chat: () => toggleChat(),
   panel: (id) => { S.panel = id; dirty(); },
   mic: () => toggleMic(),
@@ -374,18 +375,46 @@ function openShop() {
 // ---------- render loop ----------
 let isDirty = true;
 function dirty() { isDirty = true; }
+// Each window draws on its own, so an error in one never freezes the rest of the screen.
+function safe(f) { try { f(); } catch (e) { console.error(e); } }
 function renderAll() {
-  for (const [id, a] of Object.entries(APPS)) { const w = WM.get(id); if (w && !w.minimized) a.render(w); }
-  if (WM.isOpen('shop')) renderShop();
-  if (WM.isOpen('lobby')) renderLobby();
-  renderTray();
-  renderPanelTabs();
+  for (const [id, a] of Object.entries(APPS)) { const w = WM.get(id); if (w && !w.minimized) safe(() => a.render(w)); }
+  if (WM.isOpen('shop')) safe(renderShop);
+  if (WM.isOpen('lobby')) safe(renderLobby);
+  safe(renderTray);
+  safe(renderPanelTabs);
 }
 function loop() {
-  if (isDirty) { isDirty = false; renderAll(); }
-  drawChartFrame();
   requestAnimationFrame(loop);
+  if (isDirty) { isDirty = false; renderAll(); }
+  safe(drawChartFrame);
 }
+
+// ---------- market refresh ----------
+// If prices stop arriving, ask the server for everything again (or reconnect if the connection dropped),
+// and rebuild the trading windows. Runs by itself after a few silent seconds, or on demand (F9 / Refresh).
+const stale = () => S.inRun && !S.results && S.me?.alive !== false && performance.now() - S.lastTickAt > Math.max(4000, S.tickMs * 8);
+let lastRefresh = 0;
+function refreshStocks(auto = false) {
+  if (!S.inRun && !S.lobby) return SFX.error();
+  const down = !S.ws || S.ws.readyState !== 1;
+  if (auto && performance.now() - lastRefresh < (down ? 3000 : 10000)) return;
+  lastRefresh = performance.now();
+  const code = S.lobby?.code;
+  if (down) {
+    if (!code) return;
+    connect({ t: 'join', code, name: Profile.data.name, token: S.myId || localStorage.getItem('sr_token_' + code) });
+  } else send({ t: 'resync' });
+  // rebuild the trading windows from scratch
+  chartCanvas = null;
+  for (const id of ['chart', 'order', 'chat', 'friends']) { const w = WM.get(id); if (w) delete w.body.dataset.built; }
+  for (const id of GAME_WINDOWS) { const w = WM.get(id); if (w) w.body._html = null; }
+  S.newsDirty = true;
+  S.lastTickAt = performance.now();
+  balloon('Market', auto ? 'Prices stopped updating. Refreshing...' : 'Refreshing market data...', 'chart');
+  dirty();
+}
+setInterval(() => { if (stale() || (S.inRun && !S.results && S.ws && S.ws.readyState > 1)) refreshStocks(true); }, 1000);
 
 // ---------- windows ----------
 const body = (id) => WM.get(id)?.body;
@@ -476,7 +505,7 @@ function renderChart() {
         <button class="arrow" data-act="nextstock" title="Next stock (Right arrow)">${ICONS.right}</button>
       </div>
       <canvas></canvas>
-      <div class="row muted"><span id="cPos"></span><span class="grow"></span><span>Last 2 trading days</span></div></div>`;
+      <div class="row muted"><span id="cPos"></span><span class="grow"></span><span id="cStale" class="danger" style="padding:0 4px"></span><span>Last 2 trading days</span><button class="small" data-act="refresh" title="Reload prices if the game looks frozen (F9)" style="margin-left:6px">Refresh</button></div></div>`;
     chartCanvas = w.body.querySelector('canvas');
   }
   const ch = (s.price / s.dayOpen - 1) * 100;
@@ -485,6 +514,7 @@ function renderChart() {
   $('cChg').className = cls(ch);
   set('cOpen', `${cap(s.sector)}  |  ${s.yield ? `Yield ${(s.yield * 100).toFixed(2)}%/day` : 'No dividend'}  |  Open today ${num(s.dayOpen)}${s.halted ? '  |  HALTED' : ''}  |  ${S.order.indexOf(s.ticker) + 1} of ${S.order.length}`);
   const h = S.me?.holdings[s.ticker];
+  set('cStale', stale() ? 'Prices paused' : '');
   set('cPos', h ? `You own ${h.qty}: got at ${num(h.avgCost)}, sells at ${num(s.price)}, dividends ${money(h.divs || 0)}` : 'You own none');
 }
 
@@ -1004,7 +1034,7 @@ function renderHelp() {
     <p>Each run earns certificates for permanent <b>Item Shop</b> upgrades. Survive ${META.REBIRTH_DAYS_NEEDED} days in a run to unlock <b>Rebirth</b>:
     reset upgrades for Golden Shares, a new title, and pricier loans.</p>
     <div class="panel-title">Keys</div>
-    <p>Left/Right or the arrow buttons on the chart switch stocks. F5 buys and F6 sells, using the percents in the Order Ticket. Stocks pay dividends (a % of their value per day) while you own them. The Command Prompt accepts typed orders such as <code>buy nova 25</code>.</p>
+    <p>Left/Right or the arrow buttons on the chart switch stocks. F5 buys and F6 sells, using the percents in the Order Ticket. If prices stop moving, press F9 or the Refresh button under the chart (it also happens by itself after a few seconds). Stocks pay dividends (a % of their value per day) while you own them. The Command Prompt accepts typed orders such as <code>buy nova 25</code>.</p>
     <p><b>Chat:</b> press Enter or click the chat icon by the clock to talk to the room. Click the microphone icon to turn voice on or off. Text and voice go directly between players (peer to peer).</p>
     <p><b>Friends</b> (Start menu): share your friend code, save friends, see which room they are in and join it. Add people you played with from the lobby or leaderboard.</p>
     <p><b>Save Code</b> (Start menu) turns your progress into a hex code you can back up or paste on another computer.</p>`;
@@ -1027,7 +1057,7 @@ function renderCmd() {
     const t = S.market[a] ? a : S.sel;
     const n = Number(S.market[a] ? x : a);
     if (!c) return;
-    if (c === 'HELP') return print('BUY [TICKER] [PERCENT]   SELL [TICKER] [PERCENT]   SELECT TICKER\nPRICES   PORTFOLIO   LOAN SMALL|MEDIUM|SHARK   REPAY   CASHOUT   CLS   EXIT');
+    if (c === 'HELP') return print('BUY [TICKER] [PERCENT]   SELL [TICKER] [PERCENT]   SELECT TICKER\nPRICES   PORTFOLIO   LOAN SMALL|MEDIUM|SHARK   REPAY   CASHOUT   REFRESH   CLS   EXIT');
     if (c === 'CLS') { out.innerHTML = ''; return; }
     if (c === 'EXIT') return WM.close('cmd');
     if (!S.inRun) return print('Not in a run. Open Start a Run first.');
@@ -1039,6 +1069,7 @@ function renderCmd() {
     if (c === 'LOAN') { send({ t: 'loan_take', tier: (a || 'small').toLowerCase() }); return print('Loan requested.'); }
     if (c === 'REPAY') { A.repay(1); return print('Payment sent.'); }
     if (c === 'CASHOUT') { A.cashout(); return print('Confirm in the dialog.'); }
+    if (c === 'REFRESH') { refreshStocks(); return print('Refreshing market data.'); }
     print(`'${line}' is not recognized as an internal or external command.`);
   };
 }
@@ -1111,6 +1142,7 @@ function renderStartMenu() {
       ${item('achievements', 'Achievements', 'trophy', `${Object.keys(P.achievements).length} of ${META.ACHIEVEMENTS.length}`)}
       ${item('rebirth', 'Rebirth', 'rebirth', Profile.canRebirth() ? 'Available' : '')}
       ${S.inRun ? item('bank', 'Bank', 'bank') : ''}
+      ${S.inRun ? '<div class="sm-item" data-act="refresh">' + ICONS.chart + '<div><b>Refresh Market</b><small>If prices stop moving (F9)</small></div></div>' : ''}
       ${S.inRun && S.me?.alive ? '<div class="sm-item" data-act="cashout">' + ICONS.flag + '<div><b>Cash Out</b><small>End the run, keep your score</small></div></div>' : ''}
       ${item('history', 'Run History', 'news')}
       ${item('friends', 'Friends', 'users', `${Profile.data.friends.length} saved`)}
@@ -1222,6 +1254,7 @@ setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString([], {
 addEventListener('keydown', (e) => {
   const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && !['oBuyPct', 'oSellPct'].includes(document.activeElement.id);
   if (e.key === 'F1') { e.preventDefault(); openApp('help'); }
+  if (e.key === 'F9') { e.preventDefault(); refreshStocks(); }
   if (e.key === 'Enter' && S.lobby && !/INPUT|TEXTAREA|SELECT|BUTTON/.test(document.activeElement?.tagName)) { e.preventDefault(); openChat(); return; }
   if (!S.inRun || typing) return;
   if (e.key === 'F5') { e.preventDefault(); A.buy(); }

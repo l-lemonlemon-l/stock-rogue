@@ -289,3 +289,4 @@ textarea.hex { width: 100%; box-sizing: border-box; font-family: monospace; font
   .phone #rotate { display: flex; position: fixed; inset: 0; z-index: 2000000; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
     background: #0b2a6b; color: #fff; font-size: 18px; text-align: center; padding: 20px; }
 }
+#cStale:empty { display: none; }
