@@ -1,0 +1,6 @@
+{
+  "appId": "com.lemonlemon.stockrogue",
+  "appName": "Stock Rogue",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}

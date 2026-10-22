@@ -1,0 +1,12 @@
+# fly launch --copy-config --name stock-rogue   then   fly deploy
+app = "stock-rogue"
+primary_region = "sjc"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # rooms live in memory, keep the server up
+  min_machines_running = 1
+
+[[vm]]
+  memory = "256mb"

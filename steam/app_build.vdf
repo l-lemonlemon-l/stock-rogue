@@ -1,0 +1,13 @@
+"AppBuild"
+{
+	"AppID" "APP_ID"
+	"Desc" "Stock Rogue build"
+	"BuildOutput" "./output/"
+	"ContentRoot" "../"
+	"SetLive" ""
+	"Depots"
+	{
+		"WIN_DEPOT_ID" "depot_windows.vdf"
+		"MAC_DEPOT_ID" "depot_mac.vdf"
+	}
+}

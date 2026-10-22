@@ -1,0 +1,41 @@
+# Builds Windows and Mac versions on GitHub's machines (Mac builds must run on a Mac).
+# Push a tag like v1.0.0, or run it manually from the Actions tab.
+name: build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            script: dist:win
+            out: dist/win-unpacked
+            name: windows
+          - os: macos-latest
+            script: dist:mac
+            out: dist/mac-universal
+            name: mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run ${{ matrix.script }}
+        env:
+          # Mac signing + notarization (add these as repo secrets). Without them the Mac build is unsigned.
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stock-rogue-${{ matrix.name }}
+          path: ${{ matrix.out }}

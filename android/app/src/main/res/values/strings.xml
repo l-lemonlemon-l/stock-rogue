@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Stock Rogue</string>
+    <string name="title_activity_main">Stock Rogue</string>
+    <string name="package_name">com.lemonlemon.stockrogue</string>
+    <string name="custom_url_scheme">com.lemonlemon.stockrogue</string>
+</resources>
