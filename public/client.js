@@ -255,8 +255,20 @@ function showBankrupt() {
   });
 }
 
+// In a run that is still going, rebirth means cashing out first (the run's certificates count toward the reward).
+const midRun = () => S.inRun && !S.results && S.me?.alive !== false;
+const runDays = () => S.me?.stats?.daysSurvived || Math.max(0, (S.day || 1) - 1);
 function confirmRebirth() {
-  if (!Profile.canRebirth() || S.inRun) return SFX.error();
+  if (midRun()) {
+    if (!Profile.canRebirth() && runDays() < META.REBIRTH_DAYS_NEEDED) return SFX.error();
+    return WM.dialog({
+      title: 'Cash Out and Rebirth', icon: 'rebirth', width: 440,
+      html: `End this run now with <b>${money(S.me.netWorth)}</b>${S.me.loan ? ' (your debt is counted)' : ''}, bank its certificates, then rebirth?<br><br>
+        Rebirth resets your certificates and Item Shop upgrades, and gives Golden Shares, the title <b>${META.title(Profile.data.rebirths + 1)}</b>, and a higher Seed Money cap.`,
+      buttons: [{ label: 'Cash Out and Rebirth', primary: true, action: () => { S.rebirthAfterRun = true; send({ t: 'cash_out' }); } }, { label: 'Cancel' }],
+    });
+  }
+  if (!Profile.canRebirth()) return SFX.error();
   const gain = META.rebirthReward(Profile.data);
   WM.dialog({
     title: 'Rebirth', icon: 'rebirth', width: 440,
@@ -780,7 +792,8 @@ function renderAchievements() {
 function renderRebirth() {
   const b = body('rebirth');
   if (!b) return;
-  const P = Profile.data, can = Profile.canRebirth(), gain = META.rebirthReward(P), best = P.bestDaysSinceRebirth || 0;
+  const P = Profile.data, can = Profile.canRebirth(), gain = META.rebirthReward(P);
+  const best = Math.max(P.bestDaysSinceRebirth || 0, midRun() ? runDays() : 0);
   setHTML(b, `
     <div class="row">${ICONS.rebirth.replace(/<(svg|img)/, '<$1 style="width:48px;height:48px"')}
       <div><div class="big">${esc(META.title(P.rebirths))}</div><div class="muted">${P.rebirths} rebirth${P.rebirths === 1 ? '' : 's'}, ${P.goldenShares} Golden Shares</div></div></div>
@@ -792,12 +805,13 @@ function renderRebirth() {
         <li>Makes every loan ${Math.round(META.REBIRTH_LOAN_PENALTY * 100)}% more expensive per rebirth.</li>
       </ul></fieldset>
     <fieldset><legend>Requirement</legend>
-      Survive ${META.REBIRTH_DAYS_NEEDED} days in one run since your last rebirth. Best so far: <b>${best}</b>.
+      Survive ${META.REBIRTH_DAYS_NEEDED} days in one run since your last rebirth. Best so far: <b>${best}</b>${midRun() ? ` (this run: ${runDays()})` : ''}.
       <div class="progress" style="margin-top:6px"><div style="width:${Math.min(100, (best / META.REBIRTH_DAYS_NEEDED) * 100)}%"></div></div>
     </fieldset>
-    <div class="row"><span class="grow">Reward now: <b>${gain} Golden Share${gain > 1 ? 's' : ''}</b></span>
-      <button class="primary" data-act="rebirth" ${can && !S.inRun ? '' : 'disabled'}>Rebirth...</button></div>
-    ${S.inRun ? '<p class="muted">Finish your current run first.</p>' : ''}`);
+    <div class="row"><span class="grow">Reward now: <b>${gain} Golden Share${gain > 1 ? 's' : ''}</b>${midRun() ? ' (plus this run)' : ''}</span>
+      ${midRun() ? `<button class="primary" data-act="rebirth" ${can || runDays() >= META.REBIRTH_DAYS_NEEDED ? '' : 'disabled'}>Cash Out and Rebirth...</button>`
+        : `<button class="primary" data-act="rebirth" ${can ? '' : 'disabled'}>Rebirth...</button>`}</div>
+    ${midRun() ? '<p class="muted">You are in a run. Cash Out and Rebirth ends it now, banks its certificates, then rebirths.</p>' : ''}`);
 }
 
 function renderHistory() {
@@ -990,15 +1004,33 @@ function renderSaveCode() {
   b.dataset.built = 1;
   b.innerHTML = `<p>Your progress (certificates, upgrades, rebirths, achievements, history) as a hex code. Keep it somewhere safe, or paste it on another computer to move your save.</p>
     <textarea id="hexOut" class="hex" readonly rows="6">Building code...</textarea>
-    <div class="row"><button class="small" id="hexCopy">Copy</button><span class="grow muted" id="hexInfo"></span></div>
+    <div class="row"><button class="small" id="hexCopy">Copy</button><button class="small" id="hexSave">Save to file...</button><span class="grow muted" id="hexInfo"></span></div>
     <p style="margin-top:10px"><b>Load a save code</b></p>
     <textarea id="hexIn" class="hex" rows="4" placeholder="Paste a save code here"></textarea>
-    <div class="row"><button class="small" id="hexLoad">Load...</button><span class="grow"></span></div>`;
+    <div class="row"><button class="small" id="hexLoad">Load...</button><button class="small" id="hexOpen">Load from file...</button><span class="grow"></span>
+      <input type="file" id="hexFile" accept=".srsave,.txt,text/plain" hidden></div>`;
   Profile.exportHex().then((h) => { $('hexOut').value = h; $('hexInfo').textContent = `${h.replace(/ /g, '').length / 2} bytes`; });
   $('hexCopy').onclick = async () => {
     $('hexOut').select();
     try { await navigator.clipboard.writeText($('hexOut').value); } catch { document.execCommand('copy'); }
     $('hexInfo').textContent = 'Copied.';
+  };
+  $('hexSave').onclick = () => {
+    const name = `stock-rogue-${(Profile.data.name || 'save').replace(/[^\w-]+/g, '_')}-${new Date().toISOString().slice(0, 10)}.srsave`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([$('hexOut').value + '\n'], { type: 'text/plain' }));
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    $('hexInfo').textContent = `Saved ${name}`;
+  };
+  $('hexOpen').onclick = () => $('hexFile').click();
+  $('hexFile').onchange = async () => {
+    const f = $('hexFile').files[0];
+    if (!f) return;
+    $('hexIn').value = (await f.text()).trim();
+    $('hexFile').value = '';
+    $('hexLoad').click();
   };
   $('hexLoad').onclick = async () => {
     let save;
@@ -1082,6 +1114,16 @@ function showResults(m) {
   const outcome = { won, netWorth: m.netWorth, startCash: m.startCash };
   const before = checkAch(s, outcome);
   const certs = Profile.recordRun(m);
+  if (S.rebirthAfterRun) {
+    S.rebirthAfterRun = false;
+    if (Profile.canRebirth()) {
+      const g = Profile.rebirth();
+      SFX.start();
+      setTimeout(() => balloon('Reborn', `+${g} Golden Share${g > 1 ? 's' : ''}. Your title is now ${META.title(Profile.data.rebirths)}.`, 'rebirth', 'ach'), 400);
+      checkAch({});
+      renderStartMenu();
+    }
+  }
   const after = checkAch({}, outcome);
   const unlocked = [...before, ...after];
   WM.close('shop');
@@ -1116,7 +1158,7 @@ function showResults(m) {
 // ---------- shell: icons, start menu, tray ----------
 const DESKTOP_ICONS = [
   ['newgame', 'Start a Run', 'start-green'], ['itemshop', 'Item Shop', 'bag'], ['achievements', 'Achievements', 'trophy'],
-  ['rebirth', 'Rebirth', 'rebirth'], ['history', 'Run History', 'news'], ['friends', 'Friends', 'users'], ['cmd', 'Command Prompt', 'cmd'], ['help', 'Help', 'help'],
+  ['rebirth', 'Rebirth', 'rebirth'], ['history', 'Run History', 'news'], ['friends', 'Friends', 'users'], ['savecode', 'Save Code', 'disk'], ['cmd', 'Command Prompt', 'cmd'], ['help', 'Help', 'help'],
 ];
 function renderIcons() {
   $('icons').innerHTML = DESKTOP_ICONS.map(([id, label, icon]) => `<div class="icon" data-app="${id}">${ICONS[icon]}<span>${label}</span></div>`).join('');

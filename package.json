@@ -1,6 +1,6 @@
 {
   "name": "stock-rogue",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Roguelike stock trading game with online multiplayer",
   "main": "desktop/main.js",
   "scripts": {
