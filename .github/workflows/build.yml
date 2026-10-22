@@ -34,17 +34,22 @@ jobs:
       - name: Build Mac
         if: matrix.name == 'mac'
         env:
-          # Mac signing + notarization (add these as repo secrets). Without them the app is ad-hoc signed.
-          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          # Optional Apple Developer signing + notarization: add these as repo secrets.
+          # Without them the apps get a free ad-hoc signature (players right-click > Open the first time).
+          MAC_CERT: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
         run: |
           set -o pipefail
-          # on failure, post the last lines of the build log as error notes (visible in the run summary)
-          npx electron-builder --mac --arm64 --x64 --publish never 2>&1 | tee build.log || { python3 -c "import sys; t=sys.stdin.read()[-5000:]; print('::error::' + t.replace('%','%25').replace('\r','').replace('\n','%0A'))" < build.log; exit 1; }
+          if [ -n "$MAC_CERT" ]; then
+            export CSC_LINK="$MAC_CERT" CSC_KEY_PASSWORD="$MAC_CERT_PASSWORD"; SIGN=""
+          else
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; export CSC_IDENTITY_AUTO_DISCOVERY=false; SIGN="-c.mac.identity=-"
+          fi
+          # on failure, post the end of the build log as an error note (visible in the run summary)
+          npx electron-builder --mac --arm64 --x64 --publish never $SIGN 2>&1 | tee build.log || { python3 -c "import sys; t=sys.stdin.read()[-5000:]; print('::error::' + t.replace('%','%25').replace('\r','').replace('\n','%0A'))" < build.log; exit 1; }
           # zip with ditto so the app's internal links and permissions survive
           ditto -c -k --keepParent "dist/mac-arm64/Stock Rogue.app" Stock-Rogue-Mac-AppleSilicon.zip
           ditto -c -k --keepParent "dist/mac/Stock Rogue.app" Stock-Rogue-Mac-Intel.zip
